@@ -24,3 +24,6 @@ class AuthManager:
         self.youtube = build('youtube', 'v3', credentials=creds)
         self.save_token(creds.__dict__)
         return self.youtube
+        
+    def is_authenticated(self):
+        return self.youtube is not None
