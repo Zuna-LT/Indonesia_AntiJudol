@@ -10,7 +10,15 @@ class YouTubeManager:
             order="date",
             type="video"
         )
-        return request.execute()
+        response = request.execute()
+        
+        videos = []
+        for item in response.get("items", []):
+            video_id = item["id"]["videoId"]
+            title = item["snippet"]["title"]
+            videos.append((title, video_id))
+            
+        return videos
     
     def fetch_comments(self, video_id):
         comments = []
@@ -31,7 +39,7 @@ class YouTubeManager:
                 comments.append((
                     top_comment["id"],
                     top_comment["snippet"]["textDisplay"],
-                    f"[{top_comment['snippet']['authorDisplayName']} {top_comment['snippet']['textDisplay']}"
+                    f"[{top_comment['snippet']['authorDisplayName']}] {top_comment['snippet']['textDisplay']}"
                 ))
             
             next_page_token = response.get("nextPageToken")
@@ -39,3 +47,22 @@ class YouTubeManager:
                 break
                 
         return comments
+        
+    def delete_comments(self, comment_ids):
+        """Delete comments by their IDs
+        
+        Args:
+            comment_ids (list): List of comment IDs to delete
+            
+        Returns:
+            int: Number of successfully deleted comments
+        """
+        success_count = 0
+        for comment_id in comment_ids:
+            try:
+                self.youtube.comments().delete(id=comment_id).execute()
+                success_count += 1
+            except Exception as e:
+                print(f"Failed to delete comment {comment_id}: {str(e)}")
+                
+        return success_count
