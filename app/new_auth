@@ -209,14 +209,14 @@ class SimpleAuthManager:
             # Wait for the code window to close
             self.root.wait_window(code_window)
             
+        except Exception as e:
+            messagebox.showerror("Authentication Error", f"An error occurred: {str(e)}")
+            auth_window.destroy()
+            
     def cancel_auth(self, code_window, auth_window):
         """Cancel the authentication process"""
         code_window.destroy()
         auth_window.destroy()
-            
-        except Exception as e:
-            messagebox.showerror("Authentication Error", f"An error occurred: {str(e)}")
-            auth_window.destroy()
             
     def process_auth_code(self, flow, code, code_window, auth_window):
         """Process the authorization code"""
