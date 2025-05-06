@@ -6,61 +6,40 @@ import json
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from utils.constants import SCOPES
+from utils.credentials_manager import CredentialsManager
 
 class SimpleAuthManager:
     def __init__(self, root):
         self.root = root
         self.youtube = None
-        self.credentials_dir = self.get_app_data_dir()
+        self.credentials_manager = CredentialsManager()
+        self.credentials_dir = self.credentials_manager.app_data_dir
         self.token_path = os.path.join(self.credentials_dir, "token.json")
-        
-        self.client_id = "412938595830-aj744qas7m849p740m64b25f1l3b51sg.apps.googleusercontent.com"
-        self.client_secret = "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" 
-        
-    def get_app_data_dir(self):
-        """Get the application data directory based on platform"""
-        import sys
-        if sys.platform == "win32":
-            app_data = os.path.join(os.environ["APPDATA"], "JudolSlayer")
-        elif sys.platform == "darwin":
-            app_data = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "JudolSlayer")
-        else:  # Linux/Unix
-            app_data = os.path.join(os.path.expanduser("~"), ".config", "judolslayer")
-            
-        # Create directory if it doesn't exist
-        os.makedirs(app_data, exist_ok=True)
-        return app_data
-        
-    def create_client_secrets(self):
-        """Create client_secrets.json from embedded credentials"""
-        # This is your application's client ID and secret
-        # It's safe to distribute these as they're tied to your application
-        client_config = {
-            "installed": {
-                "client_id": self.client_id,
-                "project_id": "judol-slayer",
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                "client_secret": self.client_secret,
-                "redirect_uris": ["http://localhost", "urn:ietf:wg:oauth:2.0:oob"]
-            }
-        }
-        
-        # Create a temporary client_secrets.json in the app data directory
-        secrets_path = os.path.join(self.credentials_dir, "client_secrets.json")
-        with open(secrets_path, "w") as f:
-            json.dump(client_config, f)
-            
-        return secrets_path
         
     def load_token(self):
         """Load saved token if available"""
         if os.path.exists(self.token_path):
             try:
                 with open(self.token_path, 'r') as f:
-                    return json.load(f)
-            except:
+                    token_data = json.load(f)
+                    
+                # Validate token data has required fields
+                required_fields = ['token', 'refresh_token', 'client_id', 'client_secret', 'scopes']
+                if all(field in token_data for field in required_fields):
+                    return token_data
+                else:
+                    print("Token file is missing required fields")
+                    return None
+            except Exception as e:
+                print(f"Error loading token: {str(e)}")
+                # If the token file is corrupted, rename it for backup
+                # and return None to trigger new authentication
+                backup_path = self.token_path + ".bak"
+                try:
+                    os.rename(self.token_path, backup_path)
+                    print(f"Backed up corrupted token file to {backup_path}")
+                except:
+                    pass
                 return None
         return None
         
@@ -73,10 +52,19 @@ class SimpleAuthManager:
             'token_uri': creds.token_uri,
             'client_id': creds.client_id,
             'client_secret': creds.client_secret,
-            'scopes': creds.scopes,
-            # Convert expiry datetime to ISO format string
-            'expiry': creds.expiry.isoformat() if hasattr(creds, 'expiry') and creds.expiry else None
+            'scopes': creds.scopes
         }
+        
+        # Handle expiry datetime properly
+        if hasattr(creds, 'expiry') and creds.expiry:
+            try:
+                # Try ISO format first
+                token_data['expiry'] = creds.expiry.isoformat()
+            except AttributeError:
+                # If it's not a datetime object with isoformat()
+                token_data['expiry'] = str(creds.expiry)
+        else:
+            token_data['expiry'] = None
         
         with open(self.token_path, 'w') as f:
             json.dump(token_data, f)
@@ -88,6 +76,17 @@ class SimpleAuthManager:
             try:
                 # Convert the saved token data into OAuth2Credentials
                 from google.oauth2.credentials import Credentials
+                import datetime
+                
+                # Parse expiry if it exists
+                expiry = None
+                if token.get('expiry'):
+                    try:
+                        # Try to parse ISO format
+                        expiry = datetime.datetime.fromisoformat(token.get('expiry'))
+                    except (ValueError, TypeError):
+                        # If parsing fails, leave expiry as None
+                        pass
                 
                 credentials = Credentials(
                     token=token.get('token'),
@@ -97,6 +96,10 @@ class SimpleAuthManager:
                     client_secret=token.get('client_secret'),
                     scopes=token.get('scopes')
                 )
+                
+                # Add expiry if successfully parsed
+                if expiry:
+                    credentials.expiry = expiry
                 
                 # Build the YouTube service with these credentials
                 self.youtube = build('youtube', 'v3', credentials=credentials)
@@ -145,8 +148,8 @@ class SimpleAuthManager:
     def start_auth_flow(self, auth_window):
         """Start the authentication flow"""
         try:
-            # Create client secrets file from embedded credentials
-            secrets_path = self.create_client_secrets()
+            # Create client secrets file from credentials manager
+            secrets_path = self.credentials_manager.create_client_secrets_file()
             
             # Create the flow
             flow = InstalledAppFlow.from_client_secrets_file(
@@ -234,8 +237,12 @@ class SimpleAuthManager:
             # Build the YouTube service
             self.youtube = build('youtube', 'v3', credentials=credentials)
             
-            # Save the credentials for future use
-            self.save_token(credentials)
+            try:
+                # Save the credentials for future use
+                self.save_token(credentials)
+            except Exception as token_error:
+                # Just log the error but continue - the auth still worked
+                print(f"Warning: Could not save token: {str(token_error)}")
             
             # Close the windows
             code_window.destroy()
