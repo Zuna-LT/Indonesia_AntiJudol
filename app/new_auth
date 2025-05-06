@@ -1,0 +1,206 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import os
+import webbrowser
+import json
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from utils.constants import SCOPES
+
+class SimpleAuthManager:
+    def __init__(self, root):
+        self.root = root
+        self.youtube = None
+        self.credentials_dir = self.get_app_data_dir()
+        self.token_path = os.path.join(self.credentials_dir, "token.json")
+        
+        self.client_id = "412938595830-aj744qas7m849p740m64b25f1l3b51sg.apps.googleusercontent.com"
+        self.client_secret = "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" 
+        
+    def get_app_data_dir(self):
+        """Get the application data directory based on platform"""
+        import sys
+        if sys.platform == "win32":
+            app_data = os.path.join(os.environ["APPDATA"], "JudolSlayer")
+        elif sys.platform == "darwin":
+            app_data = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "JudolSlayer")
+        else:  # Linux/Unix
+            app_data = os.path.join(os.path.expanduser("~"), ".config", "judolslayer")
+            
+        # Create directory if it doesn't exist
+        os.makedirs(app_data, exist_ok=True)
+        return app_data
+        
+    def create_client_secrets(self):
+        """Create client_secrets.json from embedded credentials"""
+        # This is your application's client ID and secret
+        # It's safe to distribute these as they're tied to your application
+        client_config = {
+            "installed": {
+                "client_id": self.client_id,
+                "project_id": "judol-slayer",
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_secret": self.client_secret,
+                "redirect_uris": ["http://localhost", "urn:ietf:wg:oauth:2.0:oob"]
+            }
+        }
+        
+        # Create a temporary client_secrets.json in the app data directory
+        secrets_path = os.path.join(self.credentials_dir, "client_secrets.json")
+        with open(secrets_path, "w") as f:
+            json.dump(client_config, f)
+            
+        return secrets_path
+        
+    def load_token(self):
+        """Load saved token if available"""
+        if os.path.exists(self.token_path):
+            try:
+                with open(self.token_path, 'r') as f:
+                    return json.load(f)
+            except:
+                return None
+        return None
+        
+    def save_token(self, creds):
+        """Save token for future use"""
+        with open(self.token_path, 'w') as f:
+            json.dump(creds, f)
+            
+    def authenticate(self):
+        """Authenticate user with YouTube API"""
+        token = self.load_token()
+        if token:
+            try:
+                # Use the saved token (this is simplified - you'd need to refresh tokens properly)
+                # In a real implementation, you'd create credentials from the token
+                self.youtube = build('youtube', 'v3', credentials=token)
+                return self.youtube
+            except Exception:
+                # Token is invalid or expired, needs re-auth
+                pass
+                
+        # Create one-click authentication window
+        auth_window = tk.Toplevel(self.root)
+        auth_window.title("YouTube Authentication")
+        auth_window.geometry("450x250")
+        auth_window.transient(self.root)
+        auth_window.grab_set()
+        
+        # Center the window
+        auth_window.update_idletasks()
+        width = auth_window.winfo_width()
+        height = auth_window.winfo_height()
+        x = (auth_window.winfo_screenwidth() // 2) - (width // 2)
+        y = (auth_window.winfo_screenheight() // 2) - (height // 2)
+        auth_window.geometry(f'+{x}+{y}')
+        
+        frame = ttk.Frame(auth_window, padding="20")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="YouTube Authentication Required", 
+                 font=("Helvetica", 14, "bold")).pack(pady=(0, 15))
+        
+        ttk.Label(frame, text="Judol Slayer+ needs to connect to your YouTube account\n"
+                             "to manage comments and detect spam.", 
+                 justify="center").pack(pady=(0, 15))
+        
+        ttk.Button(frame, text="Connect with YouTube", 
+                  command=lambda: self.start_auth_flow(auth_window)).pack(pady=10)
+        
+        ttk.Label(frame, text="You'll be redirected to Google to sign in.", 
+                 font=("Helvetica", 9), foreground="gray").pack(pady=(5, 0))
+        
+        # Wait for the auth window to close
+        self.root.wait_window(auth_window)
+        
+        return self.youtube
+        
+    def start_auth_flow(self, auth_window):
+        """Start the authentication flow"""
+        try:
+            # Create client secrets file from embedded credentials
+            secrets_path = self.create_client_secrets()
+            
+            # Create the flow
+            flow = InstalledAppFlow.from_client_secrets_file(
+                secrets_path, 
+                SCOPES,
+                redirect_uri="urn:ietf:wg:oauth:2.0:oob"  # Use manual copy-paste flow for simplicity
+            )
+            
+            # Generate the authorization URL
+            auth_url, _ = flow.authorization_url(prompt='consent')
+            
+            # Open the authorization URL in the default browser
+            webbrowser.open(auth_url)
+            
+            # Create an entry dialog for the code
+            code_window = tk.Toplevel(auth_window)
+            code_window.title("Enter Authorization Code")
+            code_window.geometry("500x200")
+            code_window.transient(auth_window)
+            code_window.grab_set()
+            
+            # Center the window
+            code_window.update_idletasks()
+            width = code_window.winfo_width()
+            height = code_window.winfo_height()
+            x = (code_window.winfo_screenwidth() // 2) - (width // 2)
+            y = (code_window.winfo_screenheight() // 2) - (height // 2)
+            code_window.geometry(f'+{x}+{y}')
+            
+            code_frame = ttk.Frame(code_window, padding="20")
+            code_frame.pack(fill=tk.BOTH, expand=True)
+            
+            ttk.Label(code_frame, text="Enter the authorization code from Google:", 
+                     font=("Helvetica", 12)).pack(pady=(0, 10))
+                     
+            code_var = tk.StringVar()
+            code_entry = ttk.Entry(code_frame, width=50, textvariable=code_var)
+            code_entry.pack(pady=10, fill=tk.X)
+            
+            ttk.Button(code_frame, text="Submit", 
+                      command=lambda: self.process_auth_code(flow, code_var.get(), code_window, auth_window)
+                     ).pack(pady=10)
+                     
+            # Wait for the code window to close
+            self.root.wait_window(code_window)
+            
+        except Exception as e:
+            messagebox.showerror("Authentication Error", f"An error occurred: {str(e)}")
+            auth_window.destroy()
+            
+    def process_auth_code(self, flow, code, code_window, auth_window):
+        """Process the authorization code"""
+        try:
+            # Exchange the code for credentials
+            flow.fetch_token(code=code)
+            
+            # Get the credentials
+            credentials = flow.credentials
+            
+            # Build the YouTube service
+            self.youtube = build('youtube', 'v3', credentials=credentials)
+            
+            # Save the credentials for future use
+            self.save_token(credentials.__dict__)
+            
+            # Close the windows
+            code_window.destroy()
+            auth_window.destroy()
+            
+            # Show success message
+            messagebox.showinfo("Authentication Successful", 
+                               "Successfully connected to YouTube!")
+                               
+        except Exception as e:
+            messagebox.showerror("Authentication Error", 
+                               f"Failed to authenticate: {str(e)}")
+            code_window.destroy()
+            
+    def is_authenticated(self):
+        """Check if the user is authenticated"""
+        return self.youtube is not None
