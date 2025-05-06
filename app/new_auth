@@ -66,19 +66,43 @@ class SimpleAuthManager:
         
     def save_token(self, creds):
         """Save token for future use"""
+        # Create a serializable version of the credentials
+        token_data = {
+            'token': creds.token,
+            'refresh_token': creds.refresh_token,
+            'token_uri': creds.token_uri,
+            'client_id': creds.client_id,
+            'client_secret': creds.client_secret,
+            'scopes': creds.scopes,
+            # Convert expiry datetime to ISO format string
+            'expiry': creds.expiry.isoformat() if hasattr(creds, 'expiry') and creds.expiry else None
+        }
+        
         with open(self.token_path, 'w') as f:
-            json.dump(creds, f)
+            json.dump(token_data, f)
             
     def authenticate(self):
         """Authenticate user with YouTube API"""
         token = self.load_token()
         if token:
             try:
-                # Use the saved token (this is simplified - you'd need to refresh tokens properly)
-                # In a real implementation, you'd create credentials from the token
-                self.youtube = build('youtube', 'v3', credentials=token)
+                # Convert the saved token data into OAuth2Credentials
+                from google.oauth2.credentials import Credentials
+                
+                credentials = Credentials(
+                    token=token.get('token'),
+                    refresh_token=token.get('refresh_token'),
+                    token_uri=token.get('token_uri'),
+                    client_id=token.get('client_id'),
+                    client_secret=token.get('client_secret'),
+                    scopes=token.get('scopes')
+                )
+                
+                # Build the YouTube service with these credentials
+                self.youtube = build('youtube', 'v3', credentials=credentials)
                 return self.youtube
-            except Exception:
+            except Exception as e:
+                print(f"Token error: {str(e)}")
                 # Token is invalid or expired, needs re-auth
                 pass
                 
@@ -140,7 +164,7 @@ class SimpleAuthManager:
             # Create an entry dialog for the code
             code_window = tk.Toplevel(auth_window)
             code_window.title("Enter Authorization Code")
-            code_window.geometry("500x200")
+            code_window.geometry("600x250")
             code_window.transient(auth_window)
             code_window.grab_set()
             
@@ -157,17 +181,38 @@ class SimpleAuthManager:
             
             ttk.Label(code_frame, text="Enter the authorization code from Google:", 
                      font=("Helvetica", 12)).pack(pady=(0, 10))
+            
+            instructions = ttk.Label(code_frame, 
+                     text="1. Sign in to Google in the browser window\n"
+                          "2. Allow access to your YouTube account\n"
+                          "3. Copy the code Google provides\n"
+                          "4. Paste it below and click Submit",
+                     justify="left")
+            instructions.pack(pady=5, fill=tk.X)
                      
             code_var = tk.StringVar()
             code_entry = ttk.Entry(code_frame, width=50, textvariable=code_var)
             code_entry.pack(pady=10, fill=tk.X)
             
-            ttk.Button(code_frame, text="Submit", 
+            button_frame = ttk.Frame(code_frame)
+            button_frame.pack(fill=tk.X, pady=10)
+            
+            # Add both Submit and Cancel buttons
+            ttk.Button(button_frame, text="Submit", 
                       command=lambda: self.process_auth_code(flow, code_var.get(), code_window, auth_window)
-                     ).pack(pady=10)
+                     ).pack(side=tk.LEFT, padx=5)
+                     
+            ttk.Button(button_frame, text="Cancel", 
+                      command=lambda: self.cancel_auth(code_window, auth_window)
+                     ).pack(side=tk.LEFT, padx=5)
                      
             # Wait for the code window to close
             self.root.wait_window(code_window)
+            
+    def cancel_auth(self, code_window, auth_window):
+        """Cancel the authentication process"""
+        code_window.destroy()
+        auth_window.destroy()
             
         except Exception as e:
             messagebox.showerror("Authentication Error", f"An error occurred: {str(e)}")
@@ -175,6 +220,10 @@ class SimpleAuthManager:
             
     def process_auth_code(self, flow, code, code_window, auth_window):
         """Process the authorization code"""
+        if not code.strip():
+            messagebox.showerror("Authentication Error", "Authorization code cannot be empty")
+            return
+            
         try:
             # Exchange the code for credentials
             flow.fetch_token(code=code)
@@ -186,7 +235,7 @@ class SimpleAuthManager:
             self.youtube = build('youtube', 'v3', credentials=credentials)
             
             # Save the credentials for future use
-            self.save_token(credentials.__dict__)
+            self.save_token(credentials)
             
             # Close the windows
             code_window.destroy()
@@ -197,9 +246,19 @@ class SimpleAuthManager:
                                "Successfully connected to YouTube!")
                                
         except Exception as e:
+            error_msg = str(e)
             messagebox.showerror("Authentication Error", 
-                               f"Failed to authenticate: {str(e)}")
-            code_window.destroy()
+                               f"Failed to authenticate: {error_msg}")
+            
+            # Allow user to try again instead of closing the window
+            retry = messagebox.askyesno("Retry?", 
+                                       "Would you like to try entering the code again?")
+            if retry:
+                code_var = code_window.winfo_children()[0].winfo_children()[1].get()
+                code_window.winfo_children()[0].winfo_children()[1].delete(0, 'end')  # Clear the entry
+            else:
+                code_window.destroy()
+                auth_window.destroy()
             
     def is_authenticated(self):
         """Check if the user is authenticated"""
