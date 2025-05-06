@@ -1,9 +1,9 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import threading
-from .auth import AuthManager
-from .youtube_manager import YouTubeManager
-from .detector import SpamDetector
+from app.new_auth import SimpleAuthManager  # Updated import
+from app.youtube_manager import YouTubeManager
+from app.detector import SpamDetector
 from utils import helpers, constants
 
 class JudolSlayerGUI:
@@ -12,8 +12,8 @@ class JudolSlayerGUI:
         self.root.title("Judol Slayer+ | YouTube Comment Spam Remover")
         self.root.geometry("1000x700")
         
-        # Initialize managers
-        self.auth = AuthManager()
+        # Initialize managers - Use SimpleAuthManager instead of AuthManager
+        self.auth = SimpleAuthManager(root)  # Notice the change here
         self.manager = None
         self.detector = SpamDetector()
         
@@ -47,7 +47,7 @@ class JudolSlayerGUI:
         auth_frame = ttk.LabelFrame(main_frame, text=" Authentication ")
         auth_frame.pack(fill=tk.X, pady=10)
 
-        self.login_btn = ttk.Button(auth_frame, text="🔐 Login with Google", command=self.start_login)
+        self.login_btn = ttk.Button(auth_frame, text="🔐 Connect with YouTube", command=self.start_login)
         self.login_btn.pack(side=tk.LEFT, padx=5, pady=5)
 
         self.auth_status = ttk.Label(auth_frame, text="Status: Not logged in")
@@ -118,17 +118,11 @@ class JudolSlayerGUI:
         if token:
             try:
                 # Try to build the YouTube service with the saved token
-                # This would normally require more code to convert the token to credentials
-                # For simplicity we're just checking if the token exists
                 self.auth.authenticate()
                 self.manager = YouTubeManager(self.auth.youtube)
                 self.update_auth_status("Logged in via saved token")
             except Exception as e:
                 messagebox.showwarning("Token Error", f"Couldn't use saved token: {str(e)}")
-
-    def update_auth_status(self, message):
-        self.auth_status.config(text=f"Status: {message}")
-        self.login_btn.state(['disabled' if self.auth.is_authenticated() else '!disabled'])
 
     def start_login(self):
         self.start_operation("Authenticating...")
@@ -146,7 +140,7 @@ class JudolSlayerGUI:
 
     def fetch_videos(self):
         if not self.manager:
-            messagebox.showerror("Authentication Required", "Please log in first")
+            messagebox.showerror("Authentication Required", "Please connect with YouTube first")
             return
             
         channel_input = self.channel_entry.get().strip()
@@ -187,7 +181,7 @@ class JudolSlayerGUI:
 
     def scan_comments(self):
         if not self.manager:
-            messagebox.showerror("Authentication Required", "Please log in first")
+            messagebox.showerror("Authentication Required", "Please connect with YouTube first")
             return
             
         if not self.current_video_id:
@@ -248,7 +242,7 @@ class JudolSlayerGUI:
 
     def delete_selected(self):
         if not self.manager:
-            messagebox.showerror("Authentication Required", "Please log in first")
+            messagebox.showerror("Authentication Required", "Please connect with YouTube first")
             return
             
         selected = self.comments_tree.selection()
